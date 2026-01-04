@@ -30,17 +30,18 @@ import (
 )
 
 const (
-	usbDevicesDir              = "/sys/bus/usb/devices/"
-	usbDevicesDirVendorIDFile  = "idVendor"
-	usbDevicesDirProductIDFile = "idProduct"
-	usbDevicesDirSerialFile    = "serial"
-	usbDevicesDirBusFile       = "busnum"
-	usbDevicesDirBusDevFile    = "devnum"
-	usbDevBus                  = "/dev/bus/usb/%03x/%03x"
+	usbDevicesDir                = "/sys/bus/usb/devices/"
+	usbDevicesDirVendorIDFile    = "idVendor"
+	usbDevicesDirProductIDFile   = "idProduct"
+	usbDevicesDirProductNameFile = "product"
+	usbDevicesDirSerialFile      = "serial"
+	usbDevicesDirBusFile         = "busnum"
+	usbDevicesDirBusDevFile      = "devnum"
+	usbDevBus                    = "/dev/bus/usb/%03x/%03x"
 )
 
 // USBSpec represents a USB device specification that should be discovered.
-// A USB device must match exactly on all the given attributes to pass.
+// A USB device must match exactly on all the present attributes to pass.
 type USBSpec struct {
 	// Vendor is the USB Vendor ID of the device to match on.
 	// (Both of these get mangled to uint16 for processing - but you should use the hexadecimal representation.)
@@ -49,6 +50,8 @@ type USBSpec struct {
 	Product USBID `json:"product"`
 	// Serial is the serial number of the device to match on.
 	Serial string `json:"serial"`
+	// ProductName is the usb product name of the device to match on.
+	ProductName string `json:"productName"`
 }
 
 // USBID is a representation of a platform or vendor ID under the USB standard (see gousb.ID)
@@ -104,6 +107,8 @@ type usbDevice struct {
 	BusDevice uint16 `json:"busdev"`
 	// Serial is the serial number of the device.
 	Serial string `json:"serial"`
+	// ProductName is the usb product name of the device to match on.
+	ProductName string `json:"productname"`
 }
 
 // BusPath returns the platform-correct path to the raw device.
@@ -175,6 +180,15 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 		serial = strings.TrimSuffix(string(serBytes), "\n")
 	}
 
+	productName := ""
+	productNameBytes, err := fs.ReadFile(fsys, filepath.Join(path, usbDevicesDirProductNameFile))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return result, err
+	}
+	if productNameBytes != nil {
+		productName = strings.TrimSuffix(string(productNameBytes), "\n")
+	}
+
 	// The following two calls shouldn't fail if the above two exist and are readable.
 	bus, err := readFileToUint16(fsys, filepath.Join(path, usbDevicesDirBusFile))
 	if err != nil {
@@ -186,11 +200,12 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 	}
 
 	res := usbDevice{
-		Vendor:    USBID(vnd),
-		Product:   USBID(prd),
-		Bus:       bus,
-		BusDevice: busLoc,
-		Serial:    serial,
+		Vendor:      USBID(vnd),
+		Product:     USBID(prd),
+		Bus:         bus,
+		BusDevice:   busLoc,
+		Serial:      serial,
+		ProductName: productName,
 	}
 	return &res, nil
 }
@@ -240,9 +255,12 @@ func enumerateUSBDevices(fsys fs.FS, dir string) (specs []usbDevice, err error) 
 }
 
 // searchUSBDevices returns a subset of the "devices" slice containing only those usbDevices that match the given vendor and product arguments.
-func searchUSBDevices(devices *[]usbDevice, vendor USBID, product USBID, serial string) (devs []usbDevice, err error) {
+func searchUSBDevices(devices *[]usbDevice, vendor USBID, product USBID, serial string, productName string) (devs []usbDevice, err error) {
 	for _, dev := range *devices {
-		if dev.Vendor == vendor && dev.Product == product && (serial == "" || dev.Serial == serial) {
+		if dev.Vendor == vendor &&
+			dev.Product == product &&
+			(serial == "" || dev.Serial == serial) &&
+			(productName == "" || dev.ProductName == productName) {
 			devs = append(devs, dev)
 		}
 	}
@@ -262,7 +280,7 @@ func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 			return devices, nil
 		}
 		for _, dev := range group.USBSpecs {
-			matches, err := searchUSBDevices(&usbDevs, dev.Vendor, dev.Product, dev.Serial)
+			matches, err := searchUSBDevices(&usbDevs, dev.Vendor, dev.Product, dev.Serial, dev.ProductName)
 			if err != nil {
 				return nil, err
 			}

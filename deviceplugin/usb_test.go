@@ -144,6 +144,41 @@ func TestDiscoverUSB(t *testing.T) {
 			},
 			err: nil,
 		},
+		{
+			name: "product-name",
+			ds: &DeviceSpec{
+				Name: "no-serial",
+				Groups: []*Group{
+					{
+						USBSpecs: []*USBSpec{
+							{
+								Vendor:      0x10c4,
+								Product:     0xea60,
+								ProductName: "Example Product",
+							},
+						},
+					},
+				},
+			},
+			fs: fstest.MapFS{
+				"sys/bus/usb/devices/1-4/idVendor":  {Data: []byte("10c4\n")},
+				"sys/bus/usb/devices/1-4/idProduct": {Data: []byte("ea60\n")},
+				"sys/bus/usb/devices/1-4/busnum":    {Data: []byte("1\n")},
+				"sys/bus/usb/devices/1-4/devnum":    {Data: []byte("4\n")},
+				"sys/bus/usb/devices/1-4/product":   {Data: []byte("Example Product\n")},
+			},
+			out: []device{
+				{
+					deviceSpecs: []*v1beta1.DeviceSpec{
+						{
+							ContainerPath: "/dev/bus/usb/001/004",
+							HostPath:      "/dev/bus/usb/001/004",
+						},
+					},
+				},
+			},
+			err: nil,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.ds.Default()
