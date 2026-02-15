@@ -311,7 +311,7 @@ func enumerateUSBDevices(logger log.Logger, fsys fs.FS, dir string) (specs []usb
 			defer wg.Done()
 			result, err := queryUSBDeviceCharacteristicsByDirectory(fsys, filepath.Join(dir, dev.Name()))
 			if err != nil {
-				level.Warn(logger).Log("msg", fmt.Sprintf("failed to query usb devices: %v", err))
+				_ = level.Warn(logger).Log("msg", fmt.Sprintf("failed to query usb devices: %v", err))
 				// do we want to handle errors here?
 				return
 			}
