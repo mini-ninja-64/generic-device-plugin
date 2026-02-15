@@ -26,6 +26,7 @@ var _ fs.ReadFileFS = (*FS)(nil)
 var _ fs.StatFS = (*FS)(nil)
 var _ fs.ReadDirFS = (*FS)(nil)
 var _ fs.SubFS = (*FS)(nil)
+var _ fs.ReadLinkFS = (*FS)(nil)
 
 type FS struct {
 	fs.FS
@@ -89,4 +90,20 @@ func (f *FS) Sub(name string) (fs.FS, error) {
 		return nil, err
 	}
 	return fs.Sub(f.FS, name)
+}
+
+func (f *FS) Lstat(name string) (fs.FileInfo, error) {
+	name, err := filepath.Rel(f.prefix, name)
+	if err != nil {
+		return nil, err
+	}
+	return fs.Lstat(f.FS, name)
+}
+
+func (f *FS) ReadLink(name string) (string, error) {
+	name, err := filepath.Rel(f.prefix, name)
+	if err != nil {
+		return "", err
+	}
+	return fs.ReadLink(f.FS, name)
 }

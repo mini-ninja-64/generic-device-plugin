@@ -179,6 +179,48 @@ func TestDiscoverUSB(t *testing.T) {
 			},
 			err: nil,
 		},
+		{
+			name: "usb-tty",
+			ds: &DeviceSpec{
+				Name: "usb-device",
+				Groups: []*Group{
+					{
+						USBTTYSpecs: []*UsbTtySpec{
+							{
+								USBSpec: USBSpec{
+									Vendor:  0x10c4,
+									Product: 0xea60,
+								},
+								mountPath: "/dev/ttyDevice",
+							},
+						},
+					},
+				},
+			},
+			fs: fstest.MapFS{
+				"sys/bus/usb/devices/1-4/idVendor":                              {Data: []byte("10c4\n")},
+				"sys/bus/usb/devices/1-4/idProduct":                             {Data: []byte("ea60\n")},
+				"sys/bus/usb/devices/1-4/busnum":                                {Data: []byte("1\n")},
+				"sys/bus/usb/devices/1-4/devnum":                                {Data: []byte("4\n")},
+				"sys/bus/usb/devices/1-4/1-4:1.0/ttyUSB0/tty/ttyUSB0/subsystem": {Data: []byte("/sys/class/tty"), Mode: fs.ModeSymlink},
+				"sys/class/tty": {Data: []byte("test\n"), Mode: fs.ModeDir},
+			},
+			out: []device{
+				{
+					deviceSpecs: []*v1beta1.DeviceSpec{
+						{
+							ContainerPath: "/dev/ttyDevice0",
+							HostPath:      "/dev/ttyUSB0",
+						},
+						{
+							ContainerPath: "/dev/bus/usb/001/004",
+							HostPath:      "/dev/bus/usb/001/004",
+						},
+					},
+				},
+			},
+			err: nil,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.ds.Default()

@@ -74,6 +74,9 @@ type Group struct {
 	Paths []*Path `json:"paths"`
 	// USBSpecs is the list of USB specifications that this device group consists of.
 	USBSpecs []*USBSpec `json:"usb"`
+	// Mount the TTYs associated with this USB device
+	USBTTYSpecs []*UsbTtySpec `json:"usbTtys"`
+
 	// Count specifies how many times this group can be mounted concurrently.
 	// When unspecified, Count defaults to 1.
 	Count uint `json:"count,omitempty"`

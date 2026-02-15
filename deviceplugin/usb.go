@@ -19,8 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +42,11 @@ const (
 	usbDevBus                    = "/dev/bus/usb/%03x/%03x"
 )
 
+type CombinedUSBSpec struct {
+	usbSpec    *USBSpec
+	usbTtySpec *UsbTtySpec
+}
+
 // USBSpec represents a USB device specification that should be discovered.
 // A USB device must match exactly on all the present attributes to pass.
 type USBSpec struct {
@@ -52,6 +59,12 @@ type USBSpec struct {
 	Serial string `json:"serial"`
 	// ProductName is the usb product name of the device to match on.
 	ProductName string `json:"productName"`
+}
+
+type UsbTtySpec struct {
+	USBSpec
+
+	mountPath string `json:"mountPath"`
 }
 
 // USBID is a representation of a platform or vendor ID under the USB standard (see gousb.ID)
@@ -108,7 +121,8 @@ type usbDevice struct {
 	// Serial is the serial number of the device.
 	Serial string `json:"serial"`
 	// ProductName is the usb product name of the device to match on.
-	ProductName string `json:"productname"`
+	ProductName string   `json:"productname"`
+	Ttys        []string `json:"ttys"`
 }
 
 // BusPath returns the platform-correct path to the raw device.
@@ -137,6 +151,23 @@ func readFileToUint16(fsys fs.FS, path string) (out uint16, err error) {
 	return uint16(dAsInt), nil
 }
 
+func resolveSymlink(fsys fs.FS, path string) (string, error) {
+	fileInfo, err := fs.Lstat(fsys, path)
+	if err != nil {
+		return "", err
+	}
+	if fileInfo.Mode()&fs.ModeSymlink != fs.ModeSymlink {
+		return path, nil
+	}
+
+	link, err := fs.ReadLink(fsys, path)
+	if err != nil {
+		return "", err
+	}
+	return link, nil
+}
+
+// TODO: this doesnt actually seem to do what its supposed to?
 func resolveSymlinkToDir(fsys fs.FS, path string) (absolutePath string, err error) {
 	fileInfo, err := fs.Stat(fsys, path)
 	if err != nil {
@@ -144,6 +175,18 @@ func resolveSymlinkToDir(fsys fs.FS, path string) (absolutePath string, err erro
 	}
 	if !fileInfo.IsDir() {
 		return "", fmt.Errorf("not a directory")
+	}
+	return path, nil
+}
+
+func realpath(fsys fs.FS, path string) (string, error) {
+	path, err := resolveSymlink(fsys, path)
+	if err != nil {
+		return "", err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", err
 	}
 	return path, nil
 }
@@ -199,6 +242,11 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 		return result, err
 	}
 
+	ttys, err := findDevicesForSubsystem(fsys, path, "/sys/class/tty")
+	if err != nil {
+		return result, err
+	}
+
 	res := usbDevice{
 		Vendor:      USBID(vnd),
 		Product:     USBID(prd),
@@ -206,8 +254,37 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 		BusDevice:   busLoc,
 		Serial:      serial,
 		ProductName: productName,
+		Ttys:        ttys,
 	}
 	return &res, nil
+}
+
+func findDevicesForSubsystem(fsys fs.FS, startPath string, desiredSubsystem string) ([]string, error) {
+	var matchingDevices map[string]struct{} = make(map[string]struct{})
+
+	err := fs.WalkDir(fsys, startPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Name() != "subsystem" {
+			return nil
+		}
+		resolvedSubsystem, err := realpath(fsys, path)
+		if err != nil {
+			return err
+		}
+		if resolvedSubsystem == desiredSubsystem {
+			devName := filepath.Base(filepath.Dir(path))
+			devPath := filepath.Join("/dev", devName)
+			matchingDevices[devPath] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
+		return []string{}, err
+	}
+
+	return slices.Collect(maps.Keys(matchingDevices)), nil
 }
 
 // enumerateUSBDevices rapidly scans the OS system bus for attached USB devices.
@@ -267,6 +344,11 @@ func searchUSBDevices(devices *[]usbDevice, vendor USBID, product USBID, serial 
 	return
 }
 
+type pathMount struct {
+	host      string
+	container string
+}
+
 func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 	usbDevs, err := enumerateUSBDevices(gp.fs, usbDevicesDir)
 	for _, usbDev := range usbDevs {
@@ -274,13 +356,27 @@ func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 	}
 
 	for _, group := range gp.ds.Groups {
-		var paths []string
+		var paths []pathMount
 		if err != nil {
 			_ = level.Warn(gp.logger).Log("msg", fmt.Sprintf("failed to enumerate usb devices: %v", err))
 			return devices, nil
 		}
-		for _, dev := range group.USBSpecs {
-			matches, err := searchUSBDevices(&usbDevs, dev.Vendor, dev.Product, dev.Serial, dev.ProductName)
+		// group.USBSpecs
+		var usbSpecs []CombinedUSBSpec
+		for _, usbTtySpec := range group.USBTTYSpecs {
+			usbSpecs = append(usbSpecs, CombinedUSBSpec{usbTtySpec: usbTtySpec})
+		}
+		for _, usbSpec := range group.USBSpecs {
+			usbSpecs = append(usbSpecs, CombinedUSBSpec{usbSpec: usbSpec})
+		}
+		for _, spec := range usbSpecs {
+			var device *USBSpec
+			if spec.usbSpec != nil {
+				device = spec.usbSpec
+			} else if spec.usbTtySpec != nil {
+				device = &spec.usbTtySpec.USBSpec
+			}
+			matches, err := searchUSBDevices(&usbDevs, device.Vendor, device.Product, device.Serial, device.ProductName)
 			if err != nil {
 				return nil, err
 			}
@@ -288,8 +384,30 @@ func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 				_ = level.Debug(gp.logger).Log("msg", "no USB devices found attached to system")
 			}
 			for _, match := range matches {
-				_ = level.Debug(gp.logger).Log("msg", "USB device match", "usbdevice", fmt.Sprintf("%v:%v", dev.Vendor.String(), dev.Product.String()), "path", match.BusPath())
-				paths = append(paths, match.BusPath())
+				_ = level.Debug(gp.logger).Log(
+					"msg", "USB device match",
+					"usbdevice", fmt.Sprintf("%v:%v", device.Vendor.String(), device.Product.String()),
+					"path", match.BusPath(),
+				)
+
+				ttyCount := 0
+				if spec.usbTtySpec != nil {
+					if len(match.Ttys) == 0 {
+						level.Warn(gp.logger).Log("msg", "USB TTY match was found but has no TTYs")
+
+					}
+					for _, ttyPath := range match.Ttys {
+						paths = append(paths, pathMount{
+							host:      ttyPath,
+							container: spec.usbTtySpec.mountPath + strconv.Itoa(ttyCount),
+						})
+						ttyCount += 1
+					}
+				}
+				paths = append(paths, pathMount{
+					host:      match.BusPath(),
+					container: match.BusPath(),
+				})
 			}
 		}
 		if len(paths) > 0 {
@@ -303,11 +421,11 @@ func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 				}
 				for _, path := range paths {
 					d.deviceSpecs = append(d.deviceSpecs, &v1beta1.DeviceSpec{
-						HostPath:      path,
-						ContainerPath: path,
+						HostPath:      path.host,
+						ContainerPath: path.container,
 						Permissions:   "rw",
 					})
-					h.Write([]byte(path))
+					h.Write([]byte(path.host))
 				}
 				d.ID = fmt.Sprintf("%x", h.Sum(nil))
 				devices = append(devices, d)
