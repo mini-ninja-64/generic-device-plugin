@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
@@ -289,7 +290,7 @@ func findDevicesForSubsystem(fsys fs.FS, startPath string, desiredSubsystem stri
 
 // enumerateUSBDevices rapidly scans the OS system bus for attached USB devices.
 // Pure Go; does not require external linking.
-func enumerateUSBDevices(fsys fs.FS, dir string) (specs []usbDevice, err error) {
+func enumerateUSBDevices(logger log.Logger, fsys fs.FS, dir string) (specs []usbDevice, err error) {
 	allDevs, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return []usbDevice{}, err
@@ -310,6 +311,7 @@ func enumerateUSBDevices(fsys fs.FS, dir string) (specs []usbDevice, err error) 
 			defer wg.Done()
 			result, err := queryUSBDeviceCharacteristicsByDirectory(fsys, filepath.Join(dir, dev.Name()))
 			if err != nil {
+				level.Warn(logger).Log("msg", fmt.Sprintf("failed to query usb devices: %v", err))
 				// do we want to handle errors here?
 				return
 			}
@@ -350,7 +352,7 @@ type pathMount struct {
 }
 
 func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
-	usbDevs, err := enumerateUSBDevices(gp.fs, usbDevicesDir)
+	usbDevs, err := enumerateUSBDevices(gp.logger, gp.fs, usbDevicesDir)
 	for _, usbDev := range usbDevs {
 		_ = level.Debug(gp.logger).Log("msg", "discovered USB device", "usbdevice", fmt.Sprintf("%v:%v", usbDev.Vendor.String(), usbDev.Product.String()), "path", usbDev.BusPath())
 	}

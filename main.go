@@ -205,7 +205,7 @@ func Main() error {
 
 		enableUSBDiscovery := false
 		for _, g := range d.Groups {
-			if len(g.USBSpecs) > 0 {
+			if len(g.USBSpecs) > 0 || len(g.USBTTYSpecs) > 0 {
 				enableUSBDiscovery = true
 				break
 			}
