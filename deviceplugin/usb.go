@@ -260,7 +260,7 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 }
 
 func findDevicesForSubsystem(fsys fs.FS, startPath string, desiredSubsystem string) ([]string, error) {
-	var matchingDevices map[string]struct{} = make(map[string]struct{})
+	var matchingDevices = make(map[string]struct{})
 
 	err := fs.WalkDir(fsys, startPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -393,7 +393,7 @@ func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 				ttyCount := 0
 				if spec.usbTtySpec != nil {
 					if len(match.Ttys) == 0 {
-						level.Warn(gp.logger).Log("msg", "USB TTY match was found but has no TTYs")
+						_ = level.Warn(gp.logger).Log("msg", "USB TTY match was found but it has no TTYs")
 
 					}
 					for _, ttyPath := range match.Ttys {
