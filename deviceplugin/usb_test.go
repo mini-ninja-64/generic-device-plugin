@@ -191,7 +191,7 @@ func TestDiscoverUSB(t *testing.T) {
 									Vendor:  0x10c4,
 									Product: 0xea60,
 								},
-								mountPath: "/dev/ttyDevice",
+								MountPath: "/dev/ttyDevice",
 							},
 						},
 					},

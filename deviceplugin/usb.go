@@ -64,7 +64,7 @@ type USBSpec struct {
 type UsbTtySpec struct {
 	USBSpec
 
-	mountPath string `json:"mountPath"`
+	MountPath string `json:"mountPath"`
 }
 
 // USBID is a representation of a platform or vendor ID under the USB standard (see gousb.ID)
@@ -399,7 +399,7 @@ func (gp *GenericPlugin) discoverUSB() (devices []device, err error) {
 					for _, ttyPath := range match.Ttys {
 						paths = append(paths, pathMount{
 							host:      ttyPath,
-							container: spec.usbTtySpec.mountPath + strconv.Itoa(ttyCount),
+							container: spec.usbTtySpec.MountPath + strconv.Itoa(ttyCount),
 						})
 						ttyCount += 1
 					}
