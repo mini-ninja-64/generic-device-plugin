@@ -185,17 +185,20 @@ func realpath(fsys fs.FS, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	println("RESOLVED SYMLINK: " + path)
 	path, err = filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
+	println("RESOLVED SYMLINK ABS: " + path)
+
 	return path, nil
 }
 
 // queryUSBDeviceCharacteristicsByDirectory scans the given directory for information regarding the given USB device,
 // then returns a pointer to a new usbDevice if information is found.
 // Safe to presume that result is set if err is nil.
-func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *usbDevice, err error) {
+func queryUSBDeviceCharacteristicsByDirectory(logger log.Logger, fsys fs.FS, path string) (result *usbDevice, err error) {
 	// Test if symlink needs to be followed.
 	path, err = resolveSymlinkToDir(fsys, path)
 
@@ -243,7 +246,7 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 		return result, err
 	}
 
-	ttys, err := findDevicesForSubsystem(fsys, path, "/sys/class/tty")
+	ttys, err := findDevicesForSubsystem(logger, fsys, path, "/sys/class/tty")
 	if err != nil {
 		return result, err
 	}
@@ -260,20 +263,24 @@ func queryUSBDeviceCharacteristicsByDirectory(fsys fs.FS, path string) (result *
 	return &res, nil
 }
 
-func findDevicesForSubsystem(fsys fs.FS, startPath string, desiredSubsystem string) ([]string, error) {
+func findDevicesForSubsystem(logger log.Logger, fsys fs.FS, startPath string, desiredSubsystem string) ([]string, error) {
 	var matchingDevices = make(map[string]struct{})
 
 	err := fs.WalkDir(fsys, startPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		_ = level.Debug(logger).Log("msg", fmt.Sprintf("Walking dir in '%v': '%v'", startPath, path))
 		if d.Name() != "subsystem" {
 			return nil
 		}
+		_ = level.Debug(logger).Log("msg", fmt.Sprintf("Found subsystem in '%v'", startPath))
 		resolvedSubsystem, err := realpath(fsys, path)
 		if err != nil {
 			return err
 		}
+		_ = level.Debug(logger).Log("msg", fmt.Sprintf("Resolved subsystem in '%v' = '%v'", startPath, resolvedSubsystem))
+
 		if resolvedSubsystem == desiredSubsystem {
 			devName := filepath.Base(filepath.Dir(path))
 			devPath := filepath.Join("/dev", devName)
@@ -284,7 +291,7 @@ func findDevicesForSubsystem(fsys fs.FS, startPath string, desiredSubsystem stri
 	if err != nil {
 		return []string{}, err
 	}
-
+	_ = level.Debug(logger).Log("msg", fmt.Sprintf("Found %v devices for subsystem '%v'", len(matchingDevices), desiredSubsystem))
 	return slices.Collect(maps.Keys(matchingDevices)), nil
 }
 
@@ -309,9 +316,9 @@ func enumerateUSBDevices(logger log.Logger, fsys fs.FS, dir string) (specs []usb
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := queryUSBDeviceCharacteristicsByDirectory(fsys, filepath.Join(dir, dev.Name()))
+			result, err := queryUSBDeviceCharacteristicsByDirectory(logger, fsys, filepath.Join(dir, dev.Name()))
 			if err != nil {
-				_ = level.Warn(logger).Log("msg", fmt.Sprintf("failed to query usb devices: %v", err))
+				_ = level.Debug(logger).Log("msg", fmt.Sprintf("failed to query usb devices: %v", err))
 				// do we want to handle errors here?
 				return
 			}
