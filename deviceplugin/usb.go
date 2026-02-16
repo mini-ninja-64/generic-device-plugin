@@ -186,15 +186,19 @@ func realpathOfDir(fsys fs.FS, path string) (string, error) {
 		return "", err
 	}
 
+	println("RESOLVED SUBSYSTEM = " + resolvedSymlink)
 	// Note: handle non-relative paths
 	if strings.HasPrefix(resolvedSymlink, "/") {
+		println("RESOLVED SUBSYSTEM NON RELATIVE = " + resolvedSymlink + " : " + path)
 		return resolvedSymlink, nil
 	}
 
+	println("JOINT PATH = " + filepath.Join(path, resolvedSymlink) + " : " + path)
 	absolutePath, err := filepath.Abs(filepath.Join(path, resolvedSymlink))
 	if err != nil {
 		return "", err
 	}
+	println("RESOLVED SUBSYSTEM ABS = " + resolvedSymlink + " : " + path)
 
 	return absolutePath, nil
 }
@@ -295,7 +299,7 @@ func findDevicesForSubsystem(logger log.Logger, fsys fs.FS, startPath string, de
 	if err != nil {
 		return []string{}, err
 	}
-	_ = level.Debug(logger).Log("msg", fmt.Sprintf("Found %v devices for subsystem '%v'", len(matchingDevices), desiredSubsystem))
+	_ = level.Debug(logger).Log("msg", fmt.Sprintf("Found %v devices for subsystem '%v' at path '%v'", len(matchingDevices), desiredSubsystem, startPath))
 	return slices.Collect(maps.Keys(matchingDevices)), nil
 }
 
