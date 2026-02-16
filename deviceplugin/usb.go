@@ -180,19 +180,23 @@ func resolveSymlinkToDir(fsys fs.FS, path string) (absolutePath string, err erro
 	return path, nil
 }
 
-func realpath(fsys fs.FS, path string) (string, error) {
-	path, err := resolveSymlink(fsys, path)
+func realpathOfDir(fsys fs.FS, path string) (string, error) {
+	resolvedSymlink, err := resolveSymlink(fsys, path)
 	if err != nil {
 		return "", err
 	}
-	println("RESOLVED SYMLINK: " + path)
-	path, err = filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	println("RESOLVED SYMLINK ABS: " + path)
 
-	return path, nil
+	// Note: handle non-relative paths
+	if strings.HasPrefix(resolvedSymlink, "/") {
+		return resolvedSymlink, nil
+	}
+
+	absolutePath, err := filepath.Abs(filepath.Join(path, resolvedSymlink))
+	if err != nil {
+		return "", err
+	}
+
+	return absolutePath, nil
 }
 
 // queryUSBDeviceCharacteristicsByDirectory scans the given directory for information regarding the given USB device,
@@ -275,7 +279,7 @@ func findDevicesForSubsystem(logger log.Logger, fsys fs.FS, startPath string, de
 			return nil
 		}
 		_ = level.Debug(logger).Log("msg", fmt.Sprintf("Found subsystem in '%v'", startPath))
-		resolvedSubsystem, err := realpath(fsys, path)
+		resolvedSubsystem, err := realpathOfDir(fsys, path)
 		if err != nil {
 			return err
 		}
